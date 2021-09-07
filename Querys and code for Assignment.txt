@@ -1,0 +1,95 @@
+
+-----creating country specific tables from the intermediate tables-----
+
+CREATE TABLE Table_India AS SELECT * FROM intermeditate_table WHERE country='IND';
+CREATE TABLE Table_USA AS SELECT * FROM intermeditate_table WHERE country='USA';
+CREATE TABLE Table_Australia AS SELECT * FROM intermeditate_table WHERE country='AU';
+
+-----similarly we can create for any number of countries, we can automate this using Snowflake Stored Procedure as below-----
+
+create or replace procedure (Inter_table_name varchar)
+  returns varchar
+  LANGUAGE javascript
+  EXECUTE AS CALLER
+  as
+$$
+
+	security = "USE ROLE PRD_MMS_SECURITYADMIN_FR;"
+    snowflake.execute({sqlText: security});
+	
+	getting_distinct_countires="SELECT DISTINCT country FROM "+Inter_table_name+";";
+	snowflake.execute({sqlText: getting_distinct_countires});
+	
+	sql_stmt = snowflake.createStatement({sqlText: getting_distinct_countires});
+    countries = sql_stmt.execute();
+	
+	while countries.next()
+	{
+		country=countries.getColumnValue(1)
+		
+		create_country_table="CREATE TABLE Table_"+country+" AS SELECT * FROM "+Inter_table_name+" WHERE country='"+country+"'";
+		snowflake.execute({sqlText: create_country_table});
+		
+	}
+	
+	return "All country tables have been created from the staging table "+Inter_table_name+"."
+	
+$$;	
+
+-----copying data into snowflake from a file with file format options-----
+
+copy into database_name.schema_name.table_name from
+'<path of the source data file>'
+storage_integration=<integration for external source can be passed here>
+file_format=(type=csv field_optionally_enclosed_by='\"' empty_field_as_null=true FIELD_DELIMITER='|' NULL_IF=('') SKIP_HEADER=0 ESCAPE = '\\\\'
+ESCAPE_UNENCLOSED_FIELD = '\\\\')
+ON_ERROR='skip_file'
+FORCE=TRUE
+
+
+-----Inserting data into Snowflake using Python - pandas method-----
+
+# Importing pandas
+import pandas as pd
+
+#Snowflake connector 
+import snowflake.connector as snow
+from snowflake.connector.pandas_tools import write_pandas
+
+
+# The connector that has the credentials to Snowflake
+connector = snow.connect(user="USERNAME",
+   password="PASSWORD",
+   account="ACCOUNT",
+   warehouse="WAREHOUSE_NMAE",
+   database="DATABASE_NAME",
+   schema="SCHEMA_NAME"
+
+
+# Creating a cursor object.
+cur = connector.cursor()
+
+#removing the existing data from the table, i.e truncating
+sql = "truncate table if exists TABLE_NAME"
+cur.execute(sql)
+cur.close()
+
+# Importing data frame i.e our data file
+dat_file = r"C:\Users\path\path2\file.csv" 
+delimiter = "|" #in our case the delimeter was a single pipe character 
+
+#pandas dataframe
+total = pd.read_csv(dat_file, sep = delimiter)
+
+
+#Writing data to Snowflake table
+write_pandas(connector, total, "TABLE_NAME")
+
+cur = connector.cursor()
+
+# Turing the warehouse off to minimize warehouse usage
+sql = "ALTER WAREHOUSE WAREHOUSE_NAME SUSPEND"
+cur.execute(sql)
+
+cur.close()
+connector.close()
